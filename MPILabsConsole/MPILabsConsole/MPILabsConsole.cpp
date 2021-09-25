@@ -98,7 +98,7 @@ int main()
 
     string sb;
 
-    for (int i = 1; i < rowNumber * n; i++)
+    for (int i = 0; i < rowNumber * n; i++)
         sb.append(to_string(receivedPartialMatrix[i])).append(", ");
 
     cout << "Rank #" << rank << " received matrix: " << sb << endl;
@@ -112,7 +112,6 @@ int main()
 
     if (rank == 0)
         delete[] matrix;
-
 
     MPI_Finalize();
 }
