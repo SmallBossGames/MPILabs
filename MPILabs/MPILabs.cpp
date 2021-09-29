@@ -5,7 +5,7 @@
 
 using namespace std;
 
-void InitRandomVector(double_t* vector, size_t m)
+void InitRandomVector(unique_ptr<double_t[]> &vector, const size_t m)
 {
     for (int i = 0; i < m; i++)
     {
@@ -13,7 +13,7 @@ void InitRandomVector(double_t* vector, size_t m)
     }
 }
 
-void LogMatrix(double_t* matrix, size_t m, size_t n)
+void LogMatrix(const unique_ptr<double_t[]> &matrix, const size_t m, const size_t n)
 {
     string sb;
 
@@ -30,7 +30,7 @@ void LogMatrix(double_t* matrix, size_t m, size_t n)
     cout << sb;
 }
 
-void LogVector(double_t* vector, size_t m)
+void LogVector(const unique_ptr<double_t[]> &vector, const size_t m)
 {
     string sb;
 
@@ -77,13 +77,13 @@ int main()
 
     if (rank == 0)
     {
-        InitRandomVector(vector.get(), m);
+        InitRandomVector(vector, m);
     }
 
     if (rank == 0)
     {
         cout << "Input vector: " << endl;
-        LogVector(vector.get(), m);
+        LogVector(vector, m);
     }
 
     MPI_Bcast(vector.get(), m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -96,11 +96,11 @@ int main()
     {
         matrix.reset(new double[m * n]);
 
-        InitRandomVector(matrix.get(), m * n);
+        InitRandomVector(matrix, m * n);
 
         cout << "Input matrix: " << endl;
 
-        LogMatrix(matrix.get(), m, n);
+        LogMatrix(matrix, m, n);
     }
 
     const auto max_rows_for_process = m / size;
@@ -166,7 +166,7 @@ int main()
     {
         cout << "Output matrix" << endl;
 
-        LogVector(result_vector.get(), m);
+        LogVector(result_vector, m);
     }
 
     MPI_Finalize();
