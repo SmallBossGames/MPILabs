@@ -49,8 +49,12 @@ tuple<size_t, size_t> read_matrix_sizes(const int rank)
         cout << "Write m:" << endl;
         cin >> m;
 
+        cout << endl;
+
         cout << "Write n:" << endl;
         cin >> n;
+
+        cout << endl;
     }
 
     MPI_Bcast(&m, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
@@ -122,6 +126,8 @@ int main()
         LogMatrix(matrix, m, n);
     }
 
+    auto start_execution_timestamp = MPI_Wtime();
+
     unique_ptr<int[]> val_per_process(new int[size]);
 
     unique_ptr<int[]> displacepents(new int[size]);
@@ -185,11 +191,17 @@ int main()
 
     MPI_Gatherv(process_result_vector.get(), process_result_vector_size, MPI_DOUBLE, result_vector.get(), result_val_per_process.get(), result_dispacepents.get(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
+    auto end_execution_timestamp = MPI_Wtime();
+
     if (rank == 0)
     {
-        cout << "Output matrix" << endl;
+        cout << "Result vector: " << endl;
 
         LogVector(result_vector, m);
+
+        cout << "Processes: " << size << endl;
+        cout << "Sizes: " << m << '*' << n << endl;
+        cout << "Execution time: " << (end_execution_timestamp - start_execution_timestamp) << endl;
     }
 
     MPI_Finalize();
