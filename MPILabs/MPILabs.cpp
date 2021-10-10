@@ -1,17 +1,11 @@
-﻿#include <iostream>
+﻿#pragma once
+
+#include <iostream>
 #include <mpi.h>
-#include <vector>
 #include <string>
+#include <tuple>
 
 using namespace std;
-
-void InitRandomVector(unique_ptr<double_t[]> &vector, const size_t m)
-{
-    for (int i = 0; i < m; i++)
-    {
-        vector[i] = rand() % 100;
-    }
-}
 
 void LogMatrix(const unique_ptr<double_t[]> &matrix, const size_t m, const size_t n)
 {
@@ -27,6 +21,8 @@ void LogMatrix(const unique_ptr<double_t[]> &matrix, const size_t m, const size_
         sb.append("\n");
     }
 
+    sb.append("\n");
+
     cout << sb;
 }
 
@@ -39,23 +35,13 @@ void LogVector(const unique_ptr<double_t[]> &vector, const size_t m)
         sb.append(to_string(vector[i])).append(" ");
     }
 
-    sb.append("\n");
+    sb.append("\n\n");
 
     cout << sb;
 }
 
-int main()
+tuple<size_t, size_t> read_matrix_sizes(const int rank) 
 {
-    MPI_Init(NULL, NULL);
-
-    int rank;
-
-    int size;
-
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-
     size_t m = 0, n = 0;
 
     if (rank == 0)
@@ -71,14 +57,57 @@ int main()
 
     MPI_Bcast(&n, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
 
-    unique_ptr<double_t[]> matrix(nullptr);
+    return make_tuple(m, n);
+}
 
-    unique_ptr<double_t[]> vector(new double[m]);
+unique_ptr<double[]> create_random_vector(const size_t m)
+{
+    auto vector = make_unique<double[]>(m);
 
+    for (int i = 0; i < m; i++)
+    {
+        vector[i] = rand() % 100;
+    }
+
+    return vector;
+}
+
+unique_ptr<double[]> init_matrix(const size_t m, const size_t n, const int rank)
+{
     if (rank == 0)
     {
-        InitRandomVector(vector, m);
+        return create_random_vector(m * n);
     }
+
+    return unique_ptr<double[]>(nullptr);
+}
+
+unique_ptr<double[]> init_vector(const size_t n, const int rank)
+{
+    auto vector = rank == 0 ? create_random_vector(n) : make_unique<double[]>(n);
+
+    MPI_Bcast(vector.get(), n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    return vector;
+}
+
+int main()
+{
+    MPI_Init(NULL, NULL);
+
+    int rank;
+
+    int size;
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    auto [m, n] = read_matrix_sizes(rank);
+
+    auto matrix = init_matrix(m, n, rank);
+
+    auto vector = init_vector(m, rank);
 
     if (rank == 0)
     {
@@ -86,22 +115,16 @@ int main()
         LogVector(vector, m);
     }
 
-    MPI_Bcast(vector.get(), m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    unique_ptr<int[]> val_per_process(new int[size]);
-
-    unique_ptr<int[]> dispacepents(new int[size]);
-
     if (rank == 0)
     {
-        matrix.reset(new double[m * n]);
-
-        InitRandomVector(matrix, m * n);
-
         cout << "Input matrix: " << endl;
 
         LogMatrix(matrix, m, n);
     }
+
+    unique_ptr<int[]> val_per_process(new int[size]);
+
+    unique_ptr<int[]> displacepents(new int[size]);
 
     const auto max_rows_for_process = m / size;
 
@@ -113,14 +136,14 @@ int main()
 
         val_per_process[i] = rows_for_process * n;
 
-        dispacepents[i] = (m - rowsLeft) * n;
+        displacepents[i] = (m - rowsLeft) * n;
 
         rowsLeft -= rows_for_process;
     }
 
     unique_ptr<double_t[]> matrix_part_buffer(new double_t[val_per_process[rank]]);
 
-    MPI_Scatterv(matrix.get(), val_per_process.get(), dispacepents.get(), MPI_DOUBLE, matrix_part_buffer.get(), val_per_process[rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Scatterv(matrix.get(), val_per_process.get(), displacepents.get(), MPI_DOUBLE, matrix_part_buffer.get(), val_per_process[rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     unique_ptr<double_t[]> result_vector(nullptr);
 
