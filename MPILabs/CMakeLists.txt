@@ -7,3 +7,18 @@ cmake_minimum_required (VERSION 3.8)
 add_executable (MPILabs "MPILabs.cpp" "MPILabs.h")
 
 # TODO: Добавьте тесты и целевые объекты, если это необходимо.
+
+target_include_directories (MPILabs PUBLIC 
+	"C:/Program Files (x86)/Microsoft SDKs/MPI/Include"
+	"C:/Program Files (x86)/Microsoft SDKs/MPI/Include/x64"
+)
+
+target_link_directories(MPILabs PUBLIC
+	"C:/Program Files (x86)/Microsoft SDKs/MPI/Lib/x64"
+)
+
+target_link_libraries(MPILabs PUBLIC 
+	msmpi
+	msmpifec
+	msmpifmc
+)
