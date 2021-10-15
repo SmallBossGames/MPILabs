@@ -128,26 +128,26 @@ int main()
 
     auto start_execution_timestamp = MPI_Wtime();
 
-    unique_ptr<int[]> val_per_process(new int[size]);
+    auto val_per_process = make_unique<int[]>(size);
 
-    unique_ptr<int[]> displacepents(new int[size]);
+    auto displacepents = make_unique<int[]>(size);
 
     const auto max_rows_for_process = m / size;
 
-    auto rowsLeft = m;
+    auto sentItems = 0;
 
     for (size_t i = 0; i < size; i++)
     {
-        auto rows_for_process = i + 1 == size ? rowsLeft : max_rows_for_process;
+        auto offset = min(max_rows_for_process, m - sentItems);
 
-        val_per_process[i] = rows_for_process * n;
+        val_per_process[i] = offset * n;
 
-        displacepents[i] = (m - rowsLeft) * n;
+        displacepents[i] = sentItems * n;
 
-        rowsLeft -= rows_for_process;
+        sentItems += offset;
     }
 
-    unique_ptr<double_t[]> matrix_part_buffer(new double_t[val_per_process[rank]]);
+    auto matrix_part_buffer = make_unique<double_t[]>(val_per_process[rank]);
 
     MPI_Scatterv(matrix.get(), val_per_process.get(), displacepents.get(), MPI_DOUBLE, matrix_part_buffer.get(), val_per_process[rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
@@ -160,7 +160,7 @@ int main()
 
     const size_t process_result_vector_size = val_per_process[rank] / n;
 
-    unique_ptr<double_t[]> process_result_vector(new double_t[process_result_vector_size]);
+    auto process_result_vector = make_unique<double_t[]>(process_result_vector_size);
 
     for (size_t i = 0; i < process_result_vector_size; i++)
     {
@@ -172,9 +172,9 @@ int main()
         }
     }
 
-    unique_ptr<int[]> result_val_per_process(new int[size]);
+    auto result_val_per_process = make_unique<int[]>(size);
 
-    unique_ptr<int[]> result_dispacepents(new int[size]);
+    auto result_dispacepents = make_unique<int[]>(size);
 
     auto resultRowsLeft = m;
 
