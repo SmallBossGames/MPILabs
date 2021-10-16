@@ -4,6 +4,7 @@
 #include <mpi.h>
 #include <string>
 #include <tuple>
+#include <valarray>
 
 using namespace std;
 
@@ -26,7 +27,22 @@ void LogMatrix(const unique_ptr<double_t[]> &matrix, const size_t m, const size_
     cout << sb;
 }
 
+
 void LogVector(const unique_ptr<double_t[]> &vector, const size_t m)
+{
+    string sb;
+
+    for (size_t i = 0; i < m; i++)
+    {
+        sb.append(to_string(vector[i])).append(" ");
+    }
+
+    sb.append("\n\n");
+
+    cout << sb;
+}
+
+void LogVector(const unique_ptr<int[]>& vector, const size_t m)
 {
     string sb;
 
@@ -86,13 +102,42 @@ unique_ptr<double[]> init_matrix(const size_t m, const size_t n, const int rank)
     return unique_ptr<double[]>(nullptr);
 }
 
-unique_ptr<double[]> init_vector(const size_t n, const int rank)
+void broadcast_matrix(const size_t m, const size_t n, unique_ptr<double[]>& matrix, int rank)
 {
-    auto vector = rank == 0 ? create_random_vector(n) : make_unique<double[]>(n);
+    auto full_length = m * n;
 
-    MPI_Bcast(vector.get(), n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    if (rank != 0)
+    {
+        matrix = move(make_unique<double[]>(full_length));
+    }
 
-    return vector;
+    MPI_Bcast(matrix.get(), full_length, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+}
+
+void get_send_counts(const size_t m, const size_t n, const size_t processes_count, unique_ptr<int[]>& send_counts, unique_ptr<int[]>& displacements)
+{
+    const auto max_rows_for_process = m / processes_count;
+
+    auto temp_send_counts = make_unique<int[]>(processes_count);
+
+    auto temp_displacements = make_unique<int[]>(processes_count);
+
+    auto sentItems = 0;
+
+    for (size_t i = 0; i < processes_count; i++)
+    {
+        auto offset = i + 1 == processes_count ? m - sentItems : max_rows_for_process;
+
+        temp_send_counts[i] = offset * n;
+
+        temp_displacements[i] = sentItems * n;
+
+        sentItems += offset;
+    }
+
+    send_counts = move(temp_send_counts);
+
+    displacements = move(temp_displacements);
 }
 
 int main()
@@ -109,87 +154,60 @@ int main()
 
     auto [m, n] = read_matrix_sizes(rank);
 
-    auto matrix = init_matrix(m, n, rank);
+    auto first_matrix = init_matrix(m, n, rank);
 
-    auto vector = init_vector(m, rank);
-
-    if (rank == 0)
-    {
-        cout << "Input vector: " << endl;
-        LogVector(vector, m);
-    }
+    auto second_matrix = init_matrix(m, n, rank);
 
     if (rank == 0)
     {
-        cout << "Input matrix: " << endl;
+        cout << "First matrix: " << endl;
+        LogMatrix(first_matrix, m, n);
 
-        LogMatrix(matrix, m, n);
+        cout << "Second matrix: " << endl;
+        LogMatrix(second_matrix, m, n);
     }
 
     auto start_execution_timestamp = MPI_Wtime();
 
-    auto val_per_process = make_unique<int[]>(size);
+    broadcast_matrix(m, n, second_matrix, rank);
 
-    auto displacepents = make_unique<int[]>(size);
+    unique_ptr<int[]> send_counts, displacements;
+    get_send_counts(m, n, size, send_counts, displacements);
 
-    const auto max_rows_for_process = m / size;
+    auto matrix_part_buffer = make_unique<double_t[]>(send_counts[rank]);
 
-    auto sentItems = 0;
+    MPI_Scatterv(first_matrix.get(), send_counts.get(), displacements.get(), MPI_DOUBLE, matrix_part_buffer.get(), send_counts[rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    for (size_t i = 0; i < size; i++)
-    {
-        auto offset = min(max_rows_for_process, m - sentItems);
+    auto process_result_vector = make_unique<double_t[]>(send_counts[rank]);
 
-        val_per_process[i] = offset * n;
-
-        displacepents[i] = sentItems * n;
-
-        sentItems += offset;
-    }
-
-    auto matrix_part_buffer = make_unique<double_t[]>(val_per_process[rank]);
-
-    MPI_Scatterv(matrix.get(), val_per_process.get(), displacepents.get(), MPI_DOUBLE, matrix_part_buffer.get(), val_per_process[rank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    unique_ptr<double_t[]> result_vector(nullptr);
-
-    if (rank == 0)
-    {
-        result_vector.reset(new double_t[m]);
-    }
-
-    const size_t process_result_vector_size = val_per_process[rank] / n;
-
-    auto process_result_vector = make_unique<double_t[]>(process_result_vector_size);
-
-    for (size_t i = 0; i < process_result_vector_size; i++)
+    for (size_t i = 0; i < send_counts[rank]; i++)
     {
         process_result_vector[i] = 0.0;
+    }
 
-        for (size_t j = 0; j < n; j++)
+    for (size_t i = 0; i < send_counts[rank]/n; i++)
+    {
+        for (size_t j = 0; j < m; j++)
         {
-            process_result_vector[i] += vector[j] * matrix_part_buffer[i * n + j];
+            auto sum = 0.0;
+
+            for (size_t k = 0; k < n; k++)
+            {
+                sum += matrix_part_buffer[i * n + k] * second_matrix[k * m + j];
+            }
+
+            process_result_vector[i * n + j] = sum;
         }
     }
 
-    auto result_val_per_process = make_unique<int[]>(size);
+    unique_ptr<double_t[]> result_matrix;
 
-    auto result_dispacepents = make_unique<int[]>(size);
-
-    auto resultRowsLeft = m;
-
-    for (size_t i = 0; i < size; i++)
+    if (rank == 0)
     {
-        auto rows_for_process = i + 1 == size ? resultRowsLeft : max_rows_for_process;
-
-        result_val_per_process[i] = rows_for_process;
-
-        result_dispacepents[i] = m - resultRowsLeft;
-
-        resultRowsLeft -= rows_for_process;
+        result_matrix = move(make_unique<double_t[]>(m * n));
     }
 
-    MPI_Gatherv(process_result_vector.get(), process_result_vector_size, MPI_DOUBLE, result_vector.get(), result_val_per_process.get(), result_dispacepents.get(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Gatherv(process_result_vector.get(), send_counts[rank], MPI_DOUBLE, result_matrix.get(), send_counts.get(), displacements.get(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     auto end_execution_timestamp = MPI_Wtime();
 
@@ -197,7 +215,7 @@ int main()
     {
         cout << "Result vector: " << endl;
 
-        LogVector(result_vector, m);
+        LogMatrix(result_matrix, m, n);
 
         cout << "Processes: " << size << endl;
         cout << "Sizes: " << m << '*' << n << endl;
