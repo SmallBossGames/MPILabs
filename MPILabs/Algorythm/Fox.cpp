@@ -1,12 +1,20 @@
 #pragma once
 
 #include<mpi.h>
-#include<stdio.h>
+#include<iostream>
 #include<cmath>
 
 namespace mpi_labs::algorythms::fox
 {
     using namespace std;
+
+    void print_debug_message(const char* msg, int rank) 
+    {
+        if (rank == 0)
+        {
+            cout << msg << endl;
+        }
+    }
 
     // Программа 7.1
 // Алгоритм Фокса умножения матриц – блочное представление данных
@@ -26,13 +34,12 @@ namespace mpi_labs::algorythms::fox
     // Создание коммуникатора в виде двумерной квадратной решетки 
     // и коммуникаторов для каждой строки и каждого столбца решетки
     void CreateGridCommunicators() {
-        int DimSize[2];  	// Количество процессов в каждом измерении решетки
-        int Periodic[2];	// =1 для каждого измерения, являющегося периодическим 
-        int Subdims[2];  	// =1 для каждого измерения, оставляемого в подрешетке
-        DimSize[0] = GridSize;
-        DimSize[1] = GridSize;
-        Periodic[0] = 0;
-        Periodic[1] = 0;
+        int DimSize[2] = { GridSize , GridSize };  	// Количество процессов в каждом измерении решетки
+        int Periodic[2] = 
+        { 
+            0, // =1 для каждого измерения, являющегося периодическим 
+            0, // =1 для каждого измерения, оставляемого в подрешетке
+        };
 
         // Создание коммуникатора в виде квадратной решетки 
         MPI_Cart_create(MPI_COMM_WORLD, 2, DimSize, Periodic, 1, &GridComm);
@@ -41,14 +48,16 @@ namespace mpi_labs::algorythms::fox
         MPI_Cart_coords(GridComm, ProcRank, 2, GridCoords);
 
         // Создание коммуникаторов для строк процессной решетки
-        Subdims[0] = 0;  // Фиксация измерения
-        Subdims[1] = 1;  // Наличие данного измерения в подрешетке
-        MPI_Cart_sub(GridComm, Subdims, &RowComm);
+        const int SubdimsRows[2] = { 0, 1 };
+
+        MPI_Cart_sub(GridComm, SubdimsRows, &RowComm);
 
         // Создание коммуникаторов для столбцов процессной решетки
-        Subdims[0] = 1;
-        Subdims[1] = 0;
-        MPI_Cart_sub(GridComm, Subdims, &ColComm);
+        const int SubdimsColumns[2] = { 0, 1 };
+
+        MPI_Cart_sub(GridComm, SubdimsColumns, &ColComm);
+
+        print_debug_message("Creation of comunicators completed", ProcRank);
     }
 
     // Функция для выделения памяти и инициализации исходных данных
@@ -56,8 +65,8 @@ namespace mpi_labs::algorythms::fox
     {
         if (ProcRank == 0) {
             do {
-                printf("\nEnter matrix size: ");
-                scanf("%d", &Size);
+                cout << endl << "\nEnter matrix size: ";
+                cin >> Size;
 
                 if (Size % GridSize != 0) {
                     printf("Размер матриц должен быть кратен размеру сетки! \n");
@@ -108,15 +117,23 @@ namespace mpi_labs::algorythms::fox
                 }
             }
         }
+
+        print_debug_message("Process init completed", ProcRank);
     }
 
     void DataDistribution(double*& pAMatrix, double*& pBMatrix, double*& pTemporaryAblock, double*& pBblock, int& Size, int& BlockSize)
     {
         MPI_Type_vector(BlockSize, BlockSize, Size, MPI_DOUBLE, &MPI_BLOCK);
+
+        print_debug_message("DataDistribution MPI_Type_vector completed", ProcRank);
+
         MPI_Type_commit(&MPI_BLOCK);
+
+        print_debug_message("DataDistribution MPI_Type_commit completed", ProcRank);
+
         if (ProcRank == 0)
         {
-            for (int r = 0; r < ProcNum; r++)
+            for (int r = 1; r < ProcNum; r++)
             {
                 int c[2];
                 MPI_Cart_coords(GridComm, r, 2, c);
@@ -125,10 +142,32 @@ namespace mpi_labs::algorythms::fox
                 MPI_Send(pBMatrix + c[0] * Size * BlockSize + c[1] * BlockSize, 1,
                     MPI_BLOCK, r, 0, GridComm);
             }
+
+            {
+                MPI_Status s;
+
+                const auto r = 0;
+                
+                int c[2];
+
+                MPI_Cart_coords(GridComm, r, 2, c);
+
+                MPI_Sendrecv(
+                    pAMatrix + c[0] * Size * BlockSize + c[1] * BlockSize, 1, MPI_BLOCK, r, 0,
+                    pAMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, 0,
+                    GridComm, &s
+                );
+            }
         }
-        MPI_Status s;
-        MPI_Recv(pAMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, 0, GridComm, &s);
-        MPI_Recv(pBMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, 0, GridComm, &s);
+
+        if (ProcRank != 0)
+        {
+            MPI_Status s;
+            MPI_Recv(pAMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, 0, GridComm, &s);
+            MPI_Recv(pBMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, 0, GridComm, &s);
+        }
+
+
         for (int i = 0; i < BlockSize; i++)
         {
             for (int j = 0; j < BlockSize; j++) {}
@@ -137,6 +176,8 @@ namespace mpi_labs::algorythms::fox
         {
             for (int j = 0; j < BlockSize; j++) {}
         }
+
+        print_debug_message("DataDistribution completed", ProcRank);
     }
 
     // Рассылка блоков матрицы А по строкам решетки процессов 
@@ -257,6 +298,7 @@ namespace mpi_labs::algorythms::fox
 
             // Выделение памяти и инициализация элементов матриц
             ProcessInitialization(pAMatrix, pBMatrix, pCMatrix, pAblock, pBblock, pCblock, pMatrixAblock, Size, BlockSize);
+           
             // Блочное распределение матриц между процессами
             DataDistribution(pAMatrix, pBMatrix, pMatrixAblock, pBblock, Size, BlockSize);
 
