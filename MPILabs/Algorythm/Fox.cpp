@@ -2,6 +2,7 @@
 
 #include<mpi.h>
 #include<iostream>
+#include <string>
 #include<cmath>
 
 namespace mpi_labs::algorythms::fox
@@ -29,6 +30,17 @@ namespace mpi_labs::algorythms::fox
     MPI_Comm ColComm;   	// коммуникатор Ц столбец решетки
     MPI_Comm RowComm;   	// коммуникатор Ц строка решетки
     MPI_Datatype MPI_BLOCK;
+
+    void ShowMatrix(double*& cMatrix, int& BlockSize) {
+        string str;
+        for (int i = 0; i < BlockSize; i++)
+        {
+            for (int j = 0; j < BlockSize; j++) {
+                str.append(" ").append(to_string(cMatrix[i + j])).append(" ");
+            }
+        }
+        cout << "rank " << ProcRank << "matrix " << str << endl;
+    }
 
     // —оздание коммуникатора в виде двумерной квадратной решетки 
     // и коммуникаторов дл€ каждой строки и каждого столбца решетки
@@ -121,11 +133,13 @@ namespace mpi_labs::algorythms::fox
         print_debug_message("Process init completed", ProcRank);
     }
 
-    void DataDistribution(double*& aMatrix, double*& bMatrix, double*& pTemporaryAblock, double*& pBblock, int& Size, int& BlockSize)
+    void DataDistribution(double*& aMatrix, double*& bMatrix, double*& pTemporaryAblock, double*& bBlock, int& Size, int& BlockSize)
     {
         MPI_Type_vector(BlockSize, BlockSize, Size, MPI_DOUBLE, &MPI_BLOCK);
 
         print_debug_message("DataDistribution MPI_Type_vector completed", ProcRank);
+
+        MPI_Type_create_resized(pTemporaryAblock, 0, bBlock * sizeof(int), &MPI_BLOCK);
 
         MPI_Type_commit(&MPI_BLOCK);
 
@@ -134,15 +148,26 @@ namespace mpi_labs::algorythms::fox
         auto temp_send_counts = make_unique<int[]>(ProcNum);
         auto temp_send_shifts = make_unique<int[]>(ProcNum);
 
+        int* scounts = (int*)malloc(size * sizeof(int));
+        int* displs = (int*)malloc(size * sizeof(int));
+        int disp = 0;
+
         for (int rank = 0; rank < ProcNum; rank++) {
+            disp = rank * BlockSize * ProcNum;
+            for (int j = 0; j < ProcNum; j++) {
+                displs[rank * ProcNum + j] = disp + (j + i + Size) % Size;
+                scounts[rank * ProcNum + j] = 1;
+            }
             int c[2];
             MPI_Cart_coords(Communicator, rank, 2, c);
-            temp_send_counts[rank] = 1;
+            temp_send_counts[rank] = BlockSize * BlockSize;
             temp_send_shifts[rank] = c[0] * Size * BlockSize + c[1] * BlockSize;
         }
 
-        MPI_Scatterv(aMatrix, temp_send_counts.get(), temp_send_shifts.get(), MPI_BLOCK, aMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
-        MPI_Scatterv(bMatrix, temp_send_counts.get(), temp_send_shifts.get(), MPI_BLOCK, bMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
+        MPI_Scatterv(aMatrix, scounts, displs, MPI_BLOCK, aMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
+        MPI_Scatterv(bMatrix, scounts, displs, MPI_BLOCK, bMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
+        /*MPI_Scatterv(aMatrix, temp_send_counts.get(), temp_send_shifts.get(), MPI_DOUBLE, aMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
+        MPI_Scatterv(bMatrix, temp_send_counts.get(), temp_send_shifts.get(), MPI_DOUBLE, bMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);*/
 
         //if (ProcRank == 0)
         //{
@@ -235,9 +260,9 @@ namespace mpi_labs::algorythms::fox
         if (GridCoords[0] == 0) 
             PrevProc = GridSize - 1;
         
-        cout << "send to " << NextProc << " from " << PrevProc << endl;
+        //cout << "send to " << NextProc << " from " << PrevProc << endl;
         MPI_Sendrecv_replace(pBblock, BlockSize * BlockSize, MPI_DOUBLE, NextProc, 0, PrevProc, 0, ColComm, &Status);
-        print_debug_message("shift", ProcRank);
+        //print_debug_message("shift", ProcRank);
     }
 
     // ‘ункци€ дл€ параллельного умножени€ матриц
@@ -250,17 +275,15 @@ namespace mpi_labs::algorythms::fox
             // ÷иклический сдвиг блоков матрицы B в столбцах процессной 
             // решетки
             BblockCommunication(pBblock, BlockSize);
-            print_debug_message("calculated", ProcRank);
+            //print_debug_message("calculated", ProcRank);
         }
     }
 
     void ResultCollection(double*& cMatrix, double*& cBlock, int& Size, int& BlockSize)
     {
-        /*for (int i = 0; i < BlockSize; i++)
-        {
-            for (int j = 0; j < BlockSize; j++) {}
-        }*/
+        ShowMatrix(cMatrix, BlockSize);
         MPI_Send(cMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, 0, Communicator);
+        cout << "Sent data from rank " << ProcRank << endl;
         if (ProcRank == 0)
         {
             MPI_Status s;
@@ -269,6 +292,7 @@ namespace mpi_labs::algorythms::fox
                 int c[2];
                 MPI_Cart_coords(Communicator, rank, 2, c);
                 MPI_Recv(cBlock + c[0] * Size * BlockSize + c[1] * BlockSize, 1, MPI_BLOCK, rank, 0, Communicator, &s);
+                cout << "received data from rank " << rank << endl;
             }
             for (int i = 0; i < Size; i++)
             {
