@@ -1,10 +1,12 @@
 #pragma once
 
+#include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
 #include <mpi.h>
+
 
 namespace mpi_labs::algorythms::fox
 {
@@ -191,21 +193,21 @@ namespace mpi_labs::algorythms::fox
 		int equal = 0;
 		int i;
 		if (ProcRank == 0) {
+			auto start_execution_timestamp = MPI_Wtime();
+
 			pSerialResult = new double[Size * Size];
 			for (i = 0; i < Size * Size; i++) {
 				pSerialResult[i] = 0;
 			}
 			BlockMultiplication(pAMatrix, pBMatrix, pSerialResult, Size);
+
+			auto end_execution_timestamp = MPI_Wtime();
+			cout << "Execution time for single process: " << (end_execution_timestamp - start_execution_timestamp) << endl;
+
 			for (i = 0; i < Size * Size; i++) {
 				if (fabs(pSerialResult[i] - pCMatrix[i]) >= Accuracy)
 					equal = 1;
 			}
-			if (equal == 1)
-				printf("The results of serial and parallel algorithms are NOT"
-					"identical. Check your code.");
-			else
-				printf("The results of serial and parallel algorithms are "
-					"identical. ");
 		}
 	}
 
@@ -245,12 +247,22 @@ namespace mpi_labs::algorythms::fox
 			if (ProcRank == 0)
 				printf("Parallel matrix multiplication program\n");
 			
-			CreateGridCommunicators();
+			auto start_execution_timestamp = MPI_Wtime();
 
+			CreateGridCommunicators();
 			ProcessInitialization(pAMatrix, pBMatrix, pCMatrix, pAblock, pBblock, pCblock, pMatrixAblock, Size, BlockSize);
 			DataDistribution(pAMatrix, pBMatrix, pMatrixAblock, pBblock, Size, BlockSize);
 			ParallelResultCalculation(pAblock, pMatrixAblock, pBblock, pCblock, BlockSize);
 			ResultCollection(pCMatrix, pCblock, Size, BlockSize);
+			
+			auto end_execution_timestamp = MPI_Wtime();
+
+			if (ProcRank == 0) {
+			cout << "Processes: " << Size << endl;
+			cout << "Sizes: " << BlockSize << '*' << BlockSize << endl;
+			cout << "Execution time for multiple process: " << (end_execution_timestamp - start_execution_timestamp) << endl;
+			}
+
 			TestResult(pAMatrix, pBMatrix, pCMatrix, Size);
 			ProcessTermination(pAMatrix, pBMatrix, pCMatrix, pAblock, pBblock, pCblock, pMatrixAblock);
 		}
