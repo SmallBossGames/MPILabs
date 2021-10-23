@@ -133,13 +133,11 @@ namespace mpi_labs::algorythms::fox
         print_debug_message("Process init completed", ProcRank);
     }
 
-    void DataDistribution(double*& aMatrix, double*& bMatrix, double*& pTemporaryAblock, double*& bBlock, int& Size, int& BlockSize)
+    void DataDistribution(double*& aMatrix, double*& bMatrix, double*& pTemporaryAblock, double*& pBblock, int& Size, int& BlockSize)
     {
         MPI_Type_vector(BlockSize, BlockSize, Size, MPI_DOUBLE, &MPI_BLOCK);
 
         print_debug_message("DataDistribution MPI_Type_vector completed", ProcRank);
-
-        MPI_Type_create_resized(pTemporaryAblock, 0, bBlock * sizeof(int), &MPI_BLOCK);
 
         MPI_Type_commit(&MPI_BLOCK);
 
@@ -148,26 +146,15 @@ namespace mpi_labs::algorythms::fox
         auto temp_send_counts = make_unique<int[]>(ProcNum);
         auto temp_send_shifts = make_unique<int[]>(ProcNum);
 
-        int* scounts = (int*)malloc(size * sizeof(int));
-        int* displs = (int*)malloc(size * sizeof(int));
-        int disp = 0;
-
         for (int rank = 0; rank < ProcNum; rank++) {
-            disp = rank * BlockSize * ProcNum;
-            for (int j = 0; j < ProcNum; j++) {
-                displs[rank * ProcNum + j] = disp + (j + i + Size) % Size;
-                scounts[rank * ProcNum + j] = 1;
-            }
             int c[2];
             MPI_Cart_coords(Communicator, rank, 2, c);
             temp_send_counts[rank] = BlockSize * BlockSize;
             temp_send_shifts[rank] = c[0] * Size * BlockSize + c[1] * BlockSize;
         }
 
-        MPI_Scatterv(aMatrix, scounts, displs, MPI_BLOCK, aMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
-        MPI_Scatterv(bMatrix, scounts, displs, MPI_BLOCK, bMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
-        /*MPI_Scatterv(aMatrix, temp_send_counts.get(), temp_send_shifts.get(), MPI_DOUBLE, aMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
-        MPI_Scatterv(bMatrix, temp_send_counts.get(), temp_send_shifts.get(), MPI_DOUBLE, bMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);*/
+        MPI_Scatterv(aMatrix, temp_send_counts.get(), temp_send_shifts.get(), MPI_DOUBLE, aMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
+        MPI_Scatterv(bMatrix, temp_send_counts.get(), temp_send_shifts.get(), MPI_DOUBLE, bMatrix, BlockSize * BlockSize, MPI_DOUBLE, 0, Communicator);
 
         //if (ProcRank == 0)
         //{
